@@ -1,15 +1,31 @@
 import './style.css';
-import {advance,create,W,H,GROUND,WORLD,ARENA,MECH,barriers,drops,type State,type Input} from './sim';
+import {advance,create,W,H,GROUND,stageConfig,railAt,type StageId,type Input} from './sim';
 const canvas=document.querySelector<HTMLCanvasElement>('#game')!, g=canvas.getContext('2d')!;
 const cover=document.querySelector<HTMLElement>('#cover')!, start=document.querySelector<HTMLButtonElement>('#start')!, sound=document.querySelector<HTMLButtonElement>('#sound')!;
+const stages = {
+ trench:{number:'01',name:'TRENCH 01',title:'Break the line.',brief:'Reach the end of the trench and take down the Iron Colossus. Reflect incoming shells to turn its fire against it.',win:'Line broken.',won:'The Iron Colossus has fallen. The way into the foundry is open.',lose:'Back to the trench.',lost:'Jump over barricades and time your parry as a shell approaches.'},
+ foundry:{number:'02',name:'FOUNDRY 02',title:'Into the foundry.',brief:'Amber warns of an incoming rail cart. Wait for CLEAR or jump above it. Defeat the Furnace Warden.',win:'Furnace secured.',won:'The Furnace Warden is down. Stages 01 and 02 are both available to replay.',lose:'Back to the foundry.',lost:'Watch the rail signal: wait for CLEAR or jump above the oncoming cart.'},
+} as const;
+const kicker=document.querySelector<HTMLElement>('#kicker')!, headline=document.querySelector<HTMLElement>('#headline')!,
+ brief=document.querySelector<HTMLElement>('#brief')!, actionLabel=document.querySelector<HTMLElement>('#action-label')!,
+ shell=document.querySelector<HTMLElement>('main')!, stageButtons=document.querySelectorAll<HTMLButtonElement>('[data-stage][type=button]');
+let selected:StageId='trench';
 const key=new Set<string>(), pointers=new Map<number,string>();
 const has=(...codes:string[])=>codes.some(c=>key.has(c)||Array.from(pointers.values()).includes(c));
 const supported=['KeyA','ArrowLeft','KeyD','ArrowRight','KeyW','ArrowUp','KeyS','ArrowDown','Space','KeyJ','KeyK','KeyL','KeyE'];
 let s=create(), running=false, last=0, acc=0, camera=0, audio:AudioContext|undefined, muted=true, voices=0;
-const volumes={fire:[112,49,.070],parry:[740,1030,.14],boom:[155,35,.32],hit:[74,42,.08],jump:[180,330,.10],metal:[550,260,.14],win:[420,830,.4]};
+const volumes={fire:[112,49,.070],parry:[740,1030,.14],boom:[155,35,.32],hit:[74,42,.08],jump:[180,330,.10],metal:[550,260,.14],win:[420,830,.4],rail:[820,490,.18]};
 const c=(x:number,y:number,w:number,h:number,color:string)=>{g.fillStyle=color;g.fillRect(Math.round(x),Math.round(y),w,h);};
 function label(value:string,x:number,y:number,color='#f9e9cc',size=15) {g.font='700 '+size+'px ui-monospace,monospace';g.fillStyle=color;g.fillText(value,x,y);}
 const sky=document.createElement('canvas');sky.width=W;sky.height=H;
+const mill=document.createElement('canvas');mill.width=W;mill.height=H;
+const millArt=mill.getContext('2d')!, furnaceGlow=millArt.createLinearGradient(0,50,0,H);
+furnaceGlow.addColorStop(0,'#1a2025');furnaceGlow.addColorStop(.68,'#503828');furnaceGlow.addColorStop(1,'#c17439');
+millArt.fillStyle=furnaceGlow;millArt.fillRect(0,0,W,H);
+millArt.fillStyle='#25282a';
+for(let x=0;x<W;x+=120){millArt.fillRect(x,48,9,302);millArt.fillRect(x+13,85,95,4);}
+millArt.fillStyle='#302c29';millArt.fillRect(0,86,W,13);millArt.fillRect(0,178,W,10);
+millArt.fillStyle='#1d2225';millArt.fillRect(0,55,W,24);
 const bg=sky.getContext('2d')!;
 const grad=bg.createLinearGradient(0,0,0,380);grad.addColorStop(0,'#273d40');grad.addColorStop(.59,'#65776b');grad.addColorStop(1,'#b29064');bg.fillStyle=grad;bg.fillRect(0,0,W,H);
 bg.fillStyle='#d8a55d';bg.fillRect(700,78,99,99);bg.fillStyle='#b98f5e';for(let j=0;j<7;j++)bg.fillRect(700,86+j*12,99,2);
@@ -28,24 +44,57 @@ function input():Input {
  return {mx,aim,jump:has('Space'),fire:has('KeyJ'),parry:has('KeyK'),toss:has('KeyL'),mount:has('KeyE')};
 }
 function draw(){
- camera=Math.max(0,Math.min(WORLD-W,s.p.x-330));
- g.drawImage(sky,0,0);
- for(let n=0;n<23;n++){const x=((n*103-camera*.26)%1150+1150)%1150-120;const height=20+(n*37)%99;c(x,306-height,72,height+44,n%3===0?'#394944':'#46574d');if(n%4===0){c(x+28,266-height,14,43,'#394641');c(x+22,266-height,26,7,'#394641');}}
- c(0,GROUND,W,H-GROUND,'#302a23');c(0,GROUND,W,7,'#77523b');c(0,GROUND+7,W,4,'#9f6f44');
- for(let x=Math.floor(camera/29)*29;x<camera+W;x+=29){const sx=x-camera,n=x/29;c(sx+3,GROUND+15+n%5*9,21,4,n%3?'#4c3c2c':'#66503b');if(n%7===0)c(sx,GROUND+45,71,4,'#392f25');}
- for(let x=Math.floor(camera/165)*165;x<camera+W;x+=165){const sx=x-camera;c(sx,336,72,14,'#564837');c(sx+4,337,66,3,'#80654b');c(sx+9,330,14,9,'#615443');}
+ const cfg=stageConfig(s.stage), {world,arena,mech:mechX,barriers,drops,rail,boss:bossConfig}=cfg, foundry=s.stage==='foundry';
+ camera=Math.max(0,Math.min(world-W,s.p.x-330));
+ g.drawImage(foundry?mill:sky,0,0);
+ if(foundry){
+   for(let n=0;n<14;n++){
+     const x=((n*171-camera*.42)%2394+2394)%2394-120;
+     if(x<-120||x>W)continue;
+     const tall=137+(n*37)%86,y=330-tall;
+     c(x,y,113,tall,'#28292a');c(x+17,y-16,74,17,'#3d3630');
+     c(x+20,y+55,73,64,'#5f3925');c(x+28,y+62,57,47,n%2?'#c4652c':'#a3542c');
+     for(let k=0;k<5;k++)c(x+31+k*11,y+64,2,43,'#6b3729');
+     c(x+101,102,11,y-96,'#52504a');c(x+96,y-12,20,13,'#6a5744');
+   }
+   c(0,GROUND,W,H-GROUND,'#2f2928');c(0,GROUND,W,6,'#8b7360');c(0,GROUND+9,W,3,'#b98554');
+   for(let x=Math.floor(camera/48)*48;x<camera+W;x+=48){
+     const px=x-camera;c(px+1,GROUND+17,44,24,'#42342c');c(px+7,GROUND+21,4,4,'#7f5d45');c(px+36,GROUND+32,4,4,'#765138');
+   }
+ }else{
+   for(let n=0;n<23;n++){const x=((n*103-camera*.26)%1150+1150)%1150-120;const height=20+(n*37)%99;c(x,306-height,72,height+44,n%3===0?'#394944':'#46574d');if(n%4===0){c(x+28,266-height,14,43,'#394641');c(x+22,266-height,26,7,'#394641');}}
+   c(0,GROUND,W,H-GROUND,'#302a23');c(0,GROUND,W,7,'#77523b');c(0,GROUND+7,W,4,'#9f6f44');
+   for(let x=Math.floor(camera/29)*29;x<camera+W;x+=29){const sx=x-camera,n=x/29;c(sx+3,GROUND+15+n%5*9,21,4,n%3?'#4c3c2c':'#66503b');if(n%7===0)c(sx,GROUND+45,71,4,'#392f25');}
+   for(let x=Math.floor(camera/165)*165;x<camera+W;x+=165){const sx=x-camera;c(sx,336,72,14,'#564837');c(sx+4,337,66,3,'#80654b');c(sx+9,330,14,9,'#615443');}
+ }
+ if(rail && rail.right-camera>=0 && rail.left-camera<=W){
+   const x=rail.left-camera, span=rail.right-rail.left, signal=railAt(s.tick);
+   const lamp={clear:'#a6e1bd',warning:'#ffcd72',active:'#ff9773'}[signal.mode];
+   c(x,GROUND-2,span,4,'#b18b66');c(x,GROUND+10,span,3,'#99705a');
+   for(let px=x+5;px<x+span;px+=18)c(px,GROUND+2,5,8,'#624339');
+   for(const edge of [x,x+span]){c(edge-4,281,8,69,'#575158');c(edge-13,271,26,19,'#26232a');c(edge-8,275,16,10,lamp);}
+   c(x+48,248,164,27,'#2b2220');
+   const text={clear:'RAIL: CLEAR',warning:'CART INCOMING',active:'CART ON RAIL'}[signal.mode];
+   label(text,x+58,267,lamp,14);
+   if(signal.x!==null){
+     const cart=signal.x-camera;
+     c(cart-rail.width/2,GROUND-24,rail.width,19,'#856650');c(cart-rail.width/2,GROUND-9,rail.width,5,'#c99667');
+     c(cart-16,GROUND-7,9,7,'#292629');c(cart+8,GROUND-7,9,7,'#292629');
+     for(let n=-17;n<=13;n+=10)c(cart+n,GROUND-20,5,5,'#ffb47a');
+   }
+ }
  for(const o of barriers){const x=o.x-camera;if(x<-o.w||x>W)continue;c(x,o.y,o.w,o.h,'#4e594c');c(x,o.y,o.w,5,'#a2a879');c(x+7,o.y+10,o.w-14,o.h-17,'#363f35');for(let n=12;n<o.w-12;n+=18)c(x+n,o.y+19,6,6,'#7b795c');}
  drops.forEach((x,n)=>{if(s.usedDrops[n])return;const px=x-camera;if(px<0||px>W)return;c(px-12,330,24,20,'#748357');c(px-9,333,18,12,'#d4a55f');c(px-3,334,6,10,'#4c543a');});
  function mech(x:number,y:number,active:boolean){
    c(x-32,y-13,65,12,'#252923');c(x-24,y-24,50,15,'#857358');c(x-29,y-52,58,29,'#7d7756');c(x-24,y-55,55,5,'#beaa71');c(x-17,y-47,24,13,active?'#8addc2':'#657d73');c(x+24,y-41,25,8,'#464c3e');for(let a=-23;a<=23;a+=15)c(x+a,y-10,9,6,'#b08052');
  }
- if(!s.mechUsed&&MECH-camera>-100&&MECH-camera<W+70){mech(MECH-camera,GROUND,false);label('IRON PIG',MECH-camera-34,281,'#f5bd71',13);}
- if(s.bossSpawn){const x=ARENA-camera;c(x,213,12,137,'#343f37');for(let y=218;y<350;y+=19)c(x+2,y,8,6,'#e6a65f');}
+ if(!s.mechUsed&&mechX-camera>-100&&mechX-camera<W+70){mech(mechX-camera,GROUND,false);label('IRON PIG',mechX-camera-34,281,'#f5bd71',13);}
+ if(s.bossSpawn){const x=arena-camera;c(x,213,12,137,'#343f37');for(let y=218;y<350;y+=19)c(x+2,y,8,6,'#e6a65f');}
  for(const e of s.enemies){
    const x=e.x-camera,y=e.y;if(e.hp<=0||x<-100||x>W+100)continue;
    if(e.boss){
      c(x-51,y+35,103,15,'#1c211e');c(x-64,y+21,127,16,'#56493d');c(x-43,y-21,86,46,'#666c5b');c(x-51,y-15,32,25,'#434b42');c(x+26,y-12,27,24,'#434b42');c(x-47,y-42,94,24,'#4a564a');c(x-35,y-45,69,6,'#b0a77d');
-     c(x-20,y-19,40,32,e.phase===2?'#ff9451':'#af814f');c(x-9,y-13,18,18,e.stun?'#98ebc6':e.phase===2?'#ffda8f':'#d6a258');c(x-82,y+5,36,11,'#303931');c(x+46,y+5,36,11,'#303931');
+     c(x-20,y-19,40,32,e.phase===2?'#ff9451':'#af814f');c(x-9,y-13,18,18,e.stun?'#98ebc6':e.phase===2?'#ffda8f':'#d6a258');if(foundry){c(x-26,y-68,15,29,'#775d4c');c(x+10,y-68,15,29,'#775d4c');c(x-24,y-72,11,5,'#e88753');c(x+12,y-72,11,5,'#e88753');}c(x-82,y+5,36,11,'#303931');c(x+46,y+5,36,11,'#303931');
    }else{
      c(x-17,y-13,34,38,'#5f614e');c(x-13,y-21,26,11,'#8a8364');c(x-10,y-14,8,4,e.stun?'#98ebc6':'#f0ae6c');c(x-24,y+6,17,6,'#2e4037');c(x-11,y+24,8,4,'#282e27');c(x+5,y+24,8,4,'#282e27');
    }
@@ -60,15 +109,29 @@ function draw(){
  label(p.mech?'MECH  '+p.mechHP+'/4':'AMMO  '+p.ammo+'/18',156,36,p.ammo===0&&!p.mech?'#f8ab63':'#f9e9cc',18);
  if(p.ammo===0&&!p.mech)label('L: TOSS CORE',281,36,'#e3b56d',13);
  const boss=s.enemies.find(e=>e.boss&&e.hp>0);
- if(boss){label('IRON COLOSSUS  /  PHASE '+boss.phase,640,20,'#fac699',14);c(640,31,287,9,'#623e34');c(640,31,Math.max(0,boss.hp/boss.max*287),9,'#ef9c66');}
- else {label('TRENCH 01  /  '+Math.min(100,Math.round(p.x/ARENA*100))+'%',708,34,'#d4ccb1',15);}
- if(!s.mechUsed&&Math.abs(p.x-MECH)<68)label('E: MOUNT IRON PIG',x-67,260,'#f4d78d',14);
+ if(boss){label(bossConfig.name+'  /  PHASE '+boss.phase,640,20,'#fac699',14);c(640,31,287,9,'#623e34');c(640,31,Math.max(0,boss.hp/boss.max*287),9,'#ef9c66');}
+ else {label(stages[selected].name+'  /  '+Math.min(100,Math.round(p.x/arena*100))+'%',708,34,'#d4ccb1',15);}
+ if(!s.mechUsed&&Math.abs(p.x-mechX)<68)label('E: MOUNT IRON PIG',x-67,260,'#f4d78d',14);
  if(s.noticeUntil>s.tick){c(0,H-28,W,28,'#17231ce8');label(s.notice,20,H-9,'#ffcf90',14);}
 }
-function reset(){s=create();sounds=new Map();running=true;cover.hidden=true;acc=0;key.clear();pointers.clear();document.querySelectorAll('.held').forEach(b=>b.classList.remove('held'));canvas.focus();}
-function finish(){running=false;cover.hidden=false;document.querySelector('#kicker')!.textContent=s.mode==='won'?'OPERATION COMPLETE / 01':'OPERATION FAILED / 01';document.querySelector('#headline')!.textContent=s.mode==='won'?'Line broken.':'Back to the trench.';document.querySelector('#brief')!.textContent=s.mode==='won'?'The Iron Colossus has fallen.':'Jump over barricades and time your parry as a shell approaches.';start.firstChild!.textContent='Run again ';start.focus();}
+function choose(stage:StageId){
+ selected=stage;s=create(undefined,stage);
+ shell.dataset.stage=stage;
+ canvas.setAttribute('aria-label',stage==='trench'?'Side-scrolling trench and Iron Colossus boss':'Underground foundry with rail cart and Furnace Warden');
+ stageButtons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.stage===stage)));
+ const text=stages[stage];
+ kicker.textContent='FIELD BRIEFING / '+text.number;headline.textContent=text.title;brief.textContent=text.brief;actionLabel.textContent='Deploy';
+}
+function reset(){s=create(undefined,selected);sounds=new Map();running=true;cover.hidden=true;clear();canvas.focus();}
+function finish(){
+ running=false;clear();cover.hidden=false;const won=s.mode==='won',text=stages[selected];
+ kicker.textContent=(won?'OPERATION COMPLETE / ':'OPERATION FAILED / ')+text.number;
+ headline.textContent=won?text.win:text.lose;brief.textContent=won?text.won:text.lost;
+ actionLabel.textContent=won&&selected==='trench'?'Next: Foundry':'Run again';start.focus();
+}
 function frame(t:number){acc=Math.min(100,acc+Math.min(50,t-last));last=t;while(running&&acc>=1000/60){acc-=1000/60;advance(s,input());for(const e of new Set(s.events)){if(s.tick-(sounds.get(e)??-99)>=((e==='fire')?7:5)){effect(e);sounds.set(e,s.tick);}}if(s.mode!=='play')finish();}draw();requestAnimationFrame(frame);}
-start.addEventListener('click',reset);
+start.addEventListener('click',()=>{if(s.mode==='won'&&selected==='trench')choose('foundry');reset();});
+stageButtons.forEach(button=>button.addEventListener('click',()=>choose(button.dataset.stage as StageId)));
 sound.addEventListener('click',()=>{muted=!muted;if(!muted){try{audio??=new AudioContext();void audio.resume().catch(()=>{});}catch{muted=true;}}sound.textContent='♪ Sound '+(muted?'off':'on');sound.setAttribute('aria-pressed',String(!muted));});
 addEventListener('keydown',e=>{if(running&&supported.includes(e.code)){e.preventDefault();key.add(e.code);}});
 addEventListener('keyup',e=>key.delete(e.code));
@@ -79,4 +142,4 @@ for(const b of document.querySelectorAll<HTMLButtonElement>('[data-key]')){
  const done=(e:PointerEvent)=>{pointers.delete(e.pointerId);if(!Array.from(pointers.values()).includes(b.dataset.key!))b.classList.remove('held');};
  b.addEventListener('pointerup',done);b.addEventListener('pointercancel',done);b.addEventListener('lostpointercapture',done);
 }
-canvas.tabIndex=-1;requestAnimationFrame(frame);
+canvas.tabIndex=-1;choose('trench');requestAnimationFrame(frame);

@@ -16,7 +16,7 @@ canvas{display:block;width:100%;aspect-ratio:960/440;image-rendering:pixelated;t
 h2{font-family:Impact,'Arial Narrow',sans-serif;font-size:clamp(23px,7vw,87px);font-weight:900;line-height:.95;letter-spacing:.015em;margin:6px 0 5px}
 #brief{font-size:clamp(9px,2.6vw,15px);line-height:1.42;margin:0 0 clamp(4px,2vw,16px);max-width:46ch;color:var(--muted)}
 #start{background:var(--accent);color:#222318;border:none;font-size:clamp(10px,3vw,15px);min-height:40px}
-#start span{padding-left:8px}
+#start span[aria-hidden]{padding-left:8px}
 footer{display:flex;justify-content:space-between;gap:7px;flex-wrap:wrap;color:var(--muted);font-size:12px;line-height:2;margin-top:12px}
 kbd{font:inherit;background:#27342c;padding:2px 5px;border:1px solid #526451;border-radius:3px;color:#f6e7c7}
 .touch{display:none;justify-content:space-between;gap:6px;margin-top:9px}
@@ -25,3 +25,14 @@ kbd{font:inherit;background:#27342c;padding:2px 5px;border:1px solid #526451;bor
 .touch button{font-size:11px;min-height:40px;padding:3px}
 @media(pointer:coarse),(max-width:650px){.touch{display:flex}footer{font-size:10px;margin-top:7px}}
 @media(max-height:540px) and (orientation:landscape){main{padding:7px;width:min(100%,calc((100dvh - 116px)*2.1818))}header{margin-bottom:5px}h1{font-size:25px}.eyebrow{font-size:8px}footer{display:none}.touch{margin-top:4px}.touch>div,.touch .acts{display:flex}.touch button{min-width:35px;min-height:32px}#cover{padding:8px 18px}#brief{margin-bottom:4px}}
+
+.brief-actions,#stage-picker{display:flex;align-items:center;gap:5px}
+.brief-actions{flex-wrap:wrap}
+#stage-picker button{min-height:40px;padding:5px 9px;font-size:clamp(9px,2vw,12px);white-space:nowrap}
+#stage-picker button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+main[data-stage=foundry]{--accent:#ffc16f;--line:#77614e}
+@media (max-width:410px) {
+ .brief-actions #start,#stage-picker button{min-height:36px;padding:5px 7px}
+ #cover{padding:10px}
+ #brief{max-width:40ch}
+}
