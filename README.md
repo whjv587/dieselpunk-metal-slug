@@ -1,6 +1,11 @@
 # Iron Trench
 
-A one-stage dieselpunk browser arcade game. Traverse the trench, take the optional **Iron Pig** mech, and defeat the two-phase **Iron Colossus**. The original standalone prototype is preserved byte for byte as [prototype.html](prototype.html).
+A two-stage dieselpunk browser arcade game. Pick a stage in the field briefing, or clear Stage 01 and select **Next: Foundry**.
+
+- **01 · Iron Trench:** Traverse the trench, take the optional **Iron Pig** mech, and defeat the two-phase **Iron Colossus**.
+- **02 · Underground Foundry:** Cross an industrial rail lane and defeat the two-phase **Furnace Warden**. The crossing signal progresses from **CLEAR** (green) to **CART INCOMING** (amber) to **CART ON RAIL** (red). Enter early in the clear window, wait for the next clear, or jump over the cart. The cart cannot be parried.
+
+The original standalone prototype is preserved byte for byte as [prototype.html](prototype.html).
 
 ## Run locally
 
@@ -33,6 +38,6 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Vitest covers fixed-tick movement, swept hit detection, aiming, parry, core toss, ejection, the boss and golden replay state hashes. Playwright exercises Chromium desktop and iPhone-sized touch layouts. Set `CHROMIUM_PATH` to use an already installed Chromium. The simulation uses a seeded PRNG and a fixed 60 Hz step independent of rendering.
+Vitest covers fixed-tick movement, swept hit detection, aiming, parry, core toss, ejection, both bosses, rail warning and avoidance, full-stage routes, and golden replay state hashes for both stages. Playwright exercises selection and play in Chromium desktop and iPhone-sized touch layouts. Set `CHROMIUM_PATH` to use an already installed Chromium. The simulation uses a seeded PRNG and a fixed 60 Hz step independent of rendering.
 
-The branch delivers one complete playable stage, not the proposed four-stage campaign. Custom stage serialization, mod validation, leaderboards and co-op remain outside this slice.
+Two stages of the proposed four-stage campaign are playable. Custom stage serialization, mod validation, leaderboards and co-op remain outside this slice.
